@@ -1,0 +1,85 @@
+# SPEC: Terraria — a self-contained vanilla dedicated server image
+
+**Status:** IMPLEMENTED — v1 (GameOps 1.0.0).
+**Drafted:** 2026-09-12
+**Deliverable:** `ghcr.io/reclyptor/terraria`, built on [GameOps](https://github.com/Reclyptor/GameOps).
+
+---
+
+## 1. Purpose
+
+Run the official Terraria dedicated server — always the newest release, straight from terraria.org — as
+a single container that looks after itself: scheduled backups with retention, automatic updates
+that warn players in-game and relaunch without the container exiting, Discord notifications for
+lifecycle and player events, and configuration rendered from the environment.
+
+The vanilla server has **no RCON and no API**: its only control surface is the console on stdin.
+This is the adapter that proves the toolkit's console FIFO — every save, broadcast, player query and
+graceful stop here is a line typed at the server, with replies read back from the console log.
+
+### Non-goals
+- **Not a modded server.** Modded servers lag official releases and change the control surface;
+  the vanilla server is what lets clients on the newest Terraria join on release day.
+- **Not arm64.** The official bundle is x86-64 only.
+- **Not a world manager.** One world per container, named by `WORLD_NAME`; generated on
+  first start, loaded thereafter.
+
+---
+
+## 2. Hard constraints
+
+| # | Constraint |
+|---|---|
+| T1 | **Never start as root.** uid/gid `1000:1000` (`terraria`). |
+| T2 | **Environment is the source of truth for `serverconfig.txt`.** Rendered on every start. The ban list (`banlist.txt`) is the game's own runtime state and is never touched. |
+| T3 | **A world is generated only when its file is absent.** `autocreate` is left to the server, which honours exactly that. |
+| T4 | **Updates come only from terraria.org** (`/api/get/dedicated-servers-names` for the check, `/api/download/pc-dedicated-server/terraria-server-<n>.zip` for the bundle) and are integrity-checked with `unzip -t` before the installation is touched. |
+| T5 | **The game binary is the recorded pid.** The `TerrariaServer` wrapper script is bypassed so signals and liveness checks land on the real process. |
+| T6 | **Nothing that has not sent a Terraria connect request ever reaches the server.** The toolkit's TCP gate fronts `PORT`; the game binds loopback on `GATE_TARGET_PORT`. Nothing probes the port either. A bare TCP connect-and-close trips a race in the server's `Netplay.UpdateConnectedClients` (`ObjectDisposedException`) and kills it with exit 1, intermittently. Readiness is the console's `Server started` line; health is process + ready flag. Do not add a TCP probe to an orchestrator either. |
+
+---
+
+## 3. The image
+
+`debian:trixie-slim`; the official bundle pinned by release number and SHA-256 at build, its
+`Linux/` tree (a self-contained bundle carrying its own runtime) at `/opt/terraria`, owned by the
+runtime user so updates can replace it in place. `HOME=/data`, since the server keeps its own
+state under `$HOME`.
+
+| Path | Contents |
+|---|---|
+| `/opt/terraria` | The server (`GAME_DIR`), `VERSION` holding the release number |
+| `/data` | `worlds/ logs/ serverconfig.txt banlist.txt` and the server's own `$HOME` files (`DATA_DIR`) |
+| `/backups` | Archives of `worlds/` and `banlist.txt` |
+
+## 4. The adapter
+
+| Contract function | Terraria implementation |
+|---|---|
+| `game_install` | Data layout, empty ban list, `favorites.json` stubs, render `serverconfig.txt`. |
+| `game_version` | `/opt/terraria/VERSION` as a dotted version (`1458` → `1.4.5.8`). |
+| `game_update_available` | Highest release in the terraria.org list vs the installed number. |
+| `game_update_apply` | Download, `unzip -t`, replace `/opt/terraria` with the new `Linux/`, record the release. |
+| `game_start_cmd` | `TerrariaServer.bin.x86_64 -config /data/serverconfig.txt -logpath /data/logs`. |
+| `game_ready` | The console's `Server started` line (T6 — the port is never probed). |
+| `game_healthy` | Process alive and ready flag set; no port probe (T6). |
+| `game_save` / `game_broadcast` | console `save` / `say …`. |
+| `game_players` | console `playing`, reply parsed from the console log (`No players connected.` or one `name (ip:port)` line per player). |
+| `game_shutdown` | console `exit`, which saves and stops. |
+| `game_events` | console `<name> has joined.` / `<name> has left.`. |
+| `game_backup_paths` | `worlds banlist.txt`. |
+
+## 5. Verification
+
+- `tests/*.bats` inside the built image: config rendering and defaults, release/version mapping,
+  update-target selection from a fixture list, the corrupt-download guard, a real zip round-trip,
+  the JOIN/LEAVE parser and the `playing` parser against fixture lines, console-query plumbing,
+  readiness from the console log.
+- `tests/smoke.sh`: the install directory is a volume seeded with an older release
+  (`SMOKE_OLD_RELEASE`, default 1456) through the adapter's own installer, so the first thing
+  tested is the real update path: the small world is generated by the old release, `gameops
+  update` downloads the newest zip from terraria.org, the server `exit`s, the installation is
+  replaced, the server relaunches in the same container and loads the old world. Then: START
+  webhook → `say` visible in the console log → `playing` = 0 → backup holds the `.wld` (verified,
+  two archives listed) → the update check reports current → `docker stop` exits 0 and the world's
+  mtime advanced.

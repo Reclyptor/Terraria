@@ -1,0 +1,18 @@
+# Rendered by the adapter on every start from the TERRARIA_* environment.
+# Edit the variables, not this file. Reference: /opt/terraria/serverconfig-example.txt
+world=@WORLD_FILE@
+worldpath=@WORLD_PATH@
+autocreate=@WORLD_SIZE@
+worldname=@WORLD_NAME@
+seed=@SEED@
+difficulty=@DIFFICULTY@
+maxplayers=@MAX_PLAYERS@
+port=@PORT@
+ip=@BIND@
+password=@PASSWORD@
+motd=@MOTD@
+banlist=@BANLIST@
+secure=@SECURE@
+language=@LANGUAGE@
+npcstream=@NPCSTREAM@
+priority=@PRIORITY@

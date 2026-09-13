@@ -1,0 +1,28 @@
+# Quick start. Copy, set the password, `docker compose up -d`.
+# Full configuration: README.md
+services:
+  terraria:
+    image: ghcr.io/reclyptor/terraria:latest
+    container_name: terraria
+    restart: unless-stopped
+    ports:
+      - "7777:7777/tcp"
+    environment:
+      TZ: America/Chicago
+      SERVER_NAME: "Terraria"        # the name notifications use
+      WORLD_NAME: "world"
+      WORLD_SIZE: "2"        # 1 small, 2 medium, 3 large (first start only)
+      DIFFICULTY: "0"        # 0 classic, 1 expert, 2 master, 3 journey
+      MAX_PLAYERS: "8"
+      MOTD: "Welcome!"
+      GAME_PASSWORD: "change-me"
+      DISCORD_WEBHOOK_URL: ""
+      BACKUP_CRON: "0 4 * * *"
+      BACKUP_RETAIN_DAYS: "14"
+      UPDATE_CRON: "0 * * * *"
+      UPDATE_WARN_MINUTES: "15"
+    volumes:
+      - ./data:/data
+      - ./backups:/backups
+    # The image runs as uid/gid 1000. Create the directories with that owner:
+    #   mkdir -p data backups && sudo chown -R 1000:1000 data backups

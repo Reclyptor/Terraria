@@ -1,0 +1,12 @@
+: Server started
+127.0.0.1:54252 is connecting...
+: Alice has joined.
+: Bob Builder has joined.
+Carol has joined.
+: <Alice> hello everyone
+: <Server> hello there
+: Alice has left.
+: Bob Builder has left.
+Carol has left.
+: Backing up world file
+: Saving before exit...
